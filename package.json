@@ -5,13 +5,16 @@
   "main": "index.js",
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev"
+    "deploy:local": "wrangler deploy --config wrangler.local.toml",
+    "dev": "wrangler dev",
+    "dev:local": "wrangler dev --config wrangler.local.toml"
   },
   "dependencies": {
     "ical.js": "^2.1.0",
     "rrule": "^2.8.1"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "wrangler": "^4.34.0"
   },
   "keywords": [

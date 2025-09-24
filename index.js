@@ -1,9 +1,108 @@
 // Cloudflare Worker to post calendar events to Mastodon
 // Set up environment variables in your Cloudflare dashboard:
 // MASTODON_INSTANCE_URL, MASTODON_ACCESS_TOKEN, CALENDAR_ICS_URL
+// CLOUDFLARE_ACCESS_TEAM, CLOUDFLARE_ACCESS_AUD
 
 import { RRule } from 'rrule';
 import ICAL from 'ical.js';
+
+// --- JWT Validation for Cloudflare Access ---
+
+/**
+ * Decode a base64url string.
+ * @param {string} b64url 
+ * @returns {Uint8Array}
+ */
+const b64url_to_uint8array = (b64url) => {
+  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64);
+  const a = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) {
+    a[i] = raw.charCodeAt(i);
+  }
+  return a;
+};
+
+/**
+ * Validate the JWT from Cloudflare Access.
+ * @param {Request} request 
+ * @param {any} env 
+ * @returns {Promise<boolean>}
+ */
+async function validateJWT(request, env) {
+  const jwt = request.headers.get('Cf-Access-Jwt-Assertion');
+  if (!jwt) {
+    return false;
+  }
+
+  const [header_b64, payload_b64, signature_b64] = jwt.split('.');
+  const header = JSON.parse(atob(header_b64));
+
+  const certsURL = `https://` + env.CLOUDFLARE_ACCESS_TEAM + `.cloudflareaccess.com/cdn-cgi/access/certs`;
+  const response = await fetch(certsURL);
+  if (!response.ok) {
+    console.error('Failed to fetch Access certs');
+    return false;
+  }
+  const jwks = await response.json();
+  const key = jwks.keys.find(k => k.kid === header.kid);
+  if (!key) {
+    console.error('Matching key not found in JWKS');
+    return false;
+  }
+
+  try {
+    const cryptoKey = await crypto.subtle.importKey(
+      'jwk',
+      key,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+
+    const signature = b64url_to_uint8array(signature_b64);
+    const data = new TextEncoder().encode(`${header_b64}.${payload_b64}`);
+
+    const isValid = await crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      cryptoKey,
+      signature,
+      data
+    );
+
+    if (!isValid) {
+      console.error('JWT signature validation failed');
+      return false;
+    }
+
+    const payload = JSON.parse(atob(payload_b64));
+    const now = Math.floor(Date.now() / 1000);
+
+    if (payload.exp < now) {
+      console.error('JWT has expired');
+      return false;
+    }
+    if (payload.nbf > now) {
+      console.error('JWT not yet valid');
+      return false;
+    }
+    if (payload.iss !== `https://` + env.CLOUDFLARE_ACCESS_TEAM + `.cloudflareaccess.com`) {
+      console.error('JWT issuer is incorrect');
+      return false;
+    }
+    if (!payload.aud.includes(env.CLOUDFLARE_ACCESS_AUD)) {
+      console.error('JWT audience is incorrect');
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error during JWT validation:', err);
+    return false;
+  }
+}
+
+// --- Main Worker Logic ---
 
 export default {
   async scheduled(event, env, ctx) {
@@ -15,6 +114,18 @@ export default {
   },
 
   async fetch(request, env, ctx) {
+    // Require authentication by default, unless in a development environment
+    if (env.ENVIRONMENT !== 'development') {
+      if (!env.CLOUDFLARE_ACCESS_TEAM || !env.CLOUDFLARE_ACCESS_AUD) {
+        return new Response('Identity provider not configured. Set CLOUDFLARE_ACCESS_TEAM and CLOUDFLARE_ACCESS_AUD secrets.', { status: 500 });
+      }
+
+      const authorized = await validateJWT(request, env);
+      if (!authorized) {
+        return new Response('Forbidden', { status: 403 });
+      }
+    }
+
     const url = new URL(request.url);
     
     if (request.method === 'POST' && url.pathname === '/post') {
@@ -149,6 +260,28 @@ async function fetchCalendarEvents(env, days = 14) {
   };
 }
 
+function isAllDayOrMultiDay(vevent) {
+  const dtstart = vevent.getFirstProperty('dtstart');
+  if (!dtstart) return false;
+
+  if (dtstart.getFirstValue().isDate) {
+    return true;
+  }
+
+  const dtend = vevent.getFirstProperty('dtend');
+  if (dtend) {
+    const startDate = dtstart.getFirstValue().toJSDate();
+    const endDate = dtend.getFirstValue().toJSDate();
+    const duration = endDate.getTime() - startDate.getTime();
+
+    if (duration >= 24 * 60 * 60 * 1000) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function checkAndPostEvents(env) {
   const now = new Date();
   const upcomingLimit = new Date(now.getTime() + 360 * 60 * 60 * 1000); // ~15 days
@@ -158,6 +291,9 @@ async function checkAndPostEvents(env) {
   const eventsToPost = [];
 
   for (const vevent of rawEvents) {
+    if (isAllDayOrMultiDay(vevent)) {
+      continue;
+    }
     const summary = vevent.getFirstPropertyValue('summary');
     const uid = vevent.getFirstPropertyValue('uid');
     const location = vevent.getFirstPropertyValue('location');
@@ -241,6 +377,9 @@ async function checkAndPostDayEvents(env) {
     targetDateEnd.setDate(targetDate.getDate() + 1); // End of target date
 
     for (const vevent of rawEvents) {
+      if (isAllDayOrMultiDay(vevent)) {
+        continue;
+      }
       const dtstart = vevent.getFirstProperty('dtstart');
       const rruleProp = vevent.getFirstProperty('rrule');
 
@@ -309,6 +448,9 @@ async function checkAndPostNextEvent(env) {
   const eventsToConsider = [];
 
   for (const vevent of rawEvents) {
+    if (isAllDayOrMultiDay(vevent)) {
+      continue;
+    }
     const dtstart = vevent.getFirstProperty('dtstart');
     const rruleProp = vevent.getFirstProperty('rrule');
 
@@ -371,6 +513,9 @@ async function getWebEvents(env, days) {
   const eventsToDisplay = [];
 
   for (const vevent of rawEvents) {
+    if (isAllDayOrMultiDay(vevent)) {
+      continue;
+    }
     const summary = vevent.getFirstPropertyValue('summary');
     const uid = vevent.getFirstPropertyValue('uid');
     const location = vevent.getFirstPropertyValue('location');
@@ -586,6 +731,13 @@ function getWebInterface(env) {
             font-size: 13px;
             line-height: 1.4;
         }
+        .debug-container pre {
+            white-space: pre-wrap;
+            word-break: break-all;
+            background: #eee;
+            padding: 10px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -696,7 +848,7 @@ function getWebInterface(env) {
             } finally {
                 button.disabled = false;
                 button.textContent = buttonId === 'nextDayBtn' ?
-                    \`${buttonText}\` :
+                    '${buttonText}' :
                     'Post Next Event';
             }
         }

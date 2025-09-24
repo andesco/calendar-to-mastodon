@@ -7,7 +7,7 @@ This Cloudflare Worker automatically posts upcoming events (in a public CalDAV c
 - automatically checks for upcoming events daily
 - posts formatted announcements to Mastodon
 - serverless function via Cloudflare Workers
-- basic web interface manual support for testing
+- web interface for manual posting, protected by Cloudflare Access
 
 ## Setup
 
@@ -52,14 +52,14 @@ wrangler deploy
 
 ### 2. Enable Cloudflare Access
 
-To protect the web interface, set up Cloudflare Access in your dashboard:
+To protect the web interface and API (both optional) this worker requires Cloudflare Access. All HTTP requests are blocked by default unless authenticated.
 
 1. [Cloudflare Dashboard](https://dash.cloudflare.com) ⇢ Zero Trust ⇢ Access ⇢ Applications
 2. Add an application for your Worker and its hostnames.
 3. Configure authentication rules (email, domain, etc.)
 
-> [!WARNING]
-> Set up Cloudflare Access before saving your Mastodon token to `MASTODON_ACCESS_TOKEN`. Deploy the worker first, verify that the web interface can read your public calendar, secure access, and then add your token.
+> [!Note]
+> Deploy your worker, verify through the web interface can read your public calendar, and secure access though Cloudflare Access before saving your Mastodon token to `MASTODON_ACCESS_TOKEN`.
 
 > [!NOTE]
 > If your worker is protected by Cloudflare Access, use `cloudflared` CLI to authenticate:
@@ -74,20 +74,22 @@ To protect the web interface, set up Cloudflare Access in your dashboard:
 3. Save
 4. Copy `{your access token}`
 
-### 4. Add Mastodon Access Token
+### 4. Add Secrets and Environment Variables
 
    #### Cloudflare Dashboard
 
-   [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/) ⇢ `{worker}` ⇢ Settings: <nobr>Variables and Secrets: Add:</nobr>\
-      Type: `Secret`\
-      Variable name: `MASTODON_ACCESS_TOKEN`\
-      Value: `{your access token}`
-   
-   #### Wrangler CLI
-      
-   ```bash
-   wrangler secret put MASTODON_ACCESS_TOKEN`
-   ```
+   [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/) ⇢ `{worker}` ⇢ Settings: <nobr>Variables and Secrets: Add:</nobr> \
+   `MASTODON_ACCESS_TOKEN` \
+   `CLOUDFLARE_ACCESS_TEAM` \
+   `CLOUDFLARE_ACCESS_AUD` \
+
+#### Wrangler CLI
+    
+ ```bash
+ wrangler secret put MASTODON_ACCESS_TOKEN
+ wrangler secret put CLOUDFLARE_ACCESS_TEAM
+ wrangler secret put CLOUDFLARE_ACCESS_AUD
+ ```
 
 ### 5. Modify Schedule
  
@@ -103,11 +105,7 @@ To protect the web interface, set up Cloudflare Access in your dashboard:
    [triggers]
    crons = ["30 17 * * *"]
    ```
-   
-   ```bash
-   wrangler secret put MASTODON_ACCESS_TOKEN`
-   ```
-   
+
 ## Environment Variables & Secret
 
 | Variable | Description | Example |
@@ -116,6 +114,9 @@ To protect the web interface, set up Cloudflare Access in your dashboard:
 | `MASTODON_INSTANCE_URL` | Mastodon instance URL | `https://social.coop` |
 | `DAYS_AHEAD` | days ahead to post events | `0` &nbsp; `1` &nbsp; `0,1,14` |
 | `MASTODON_ACCESS_TOKEN` | access token from Mastodon | `your-private-access-token` |
+| `CLOUDFLARE_ACCESS_TEAM` | Cloudflare Access subdomain | `your-team-name` |
+| `CLOUDFLARE_ACCESS_AUD` | Application audience (AUD) tag | `a1b2c3d4…` |
+| `ENVIRONMENT` | bypass authentication | `development` |
 
 > [!NOTE]
 > `DAYS_AHEAD` <br> `0` posts all events occuring today <br> `1` posts all events occuring tomorrow (default) <br> `0,1,14` posts all events occuring today, tomorrow, and in 14 days
@@ -139,25 +140,25 @@ https://{worker}.{subdomain}.workers.dev
 
 ## API
 
-The worker provides a simple API for fetching events in jCal (JSON) and posting to Mastodon.
+The worker API is protected by Cloudflare Access. To make requests from the command line, use the `cloudflared` CLI to authenticate.
 
 #### GET /api/events
 
 ```bash
-curl "https://{worker}.{subdomain}.workers.dev/api/events?days={days}"
+cloudflared access curl "https://{worker}.{subdomain}.workers.dev/api/events?days={days}"
 ```
 -   fetch events within specified `{days}`
 
 #### POST /trigger
 
 ```bash
-curl -X POST https://{worker}.{subdomain}.workers.dev/post/day
+cloudflared access curl -X POST https://{worker}.{subdomain}.workers.dev/post/day
 ```
 - checks for events occurring in `{DAYS_AHEAD}` days and posts to Mastodon
 - runs automatically via cron schedule
 
 ```bash
-curl -X POST https://{worker}.{subdomain}.workers.dev/post/next
+cloudflared access curl -X POST https://{worker}.{subdomain}.workers.dev/post/next
 ```
 - posts the closest event within the next 2 weeks
 
@@ -173,7 +174,9 @@ Modify the `postToMastodon()` function to customize:
 
 #### Filtering Events
 
-Add filters in `checkAndPostDayEvents()` to only post certain events:
+By default, the worker does not post all-day or multi-day events. You can change this behavior in the `checkAndPostDayEvents()` function.
+
+Additionally, you can add your own filters in `checkAndPostDayEvents()` to only post certain events. For example, to only post events that include 'Public' or 'Community' in their summary:
 
 ```javascript
 const tomorrowEvents = events.filter(event => {
@@ -203,7 +206,3 @@ cloudflare-worker-caldav-to-mastodon/
 ├── README.md         # this document
 └── wrangler.toml     # Wrangler configuration (optional)
 ```
-
-## License
-
-This project is [licensed under the MIT License](LICENSE).

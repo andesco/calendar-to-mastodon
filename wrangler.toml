@@ -1,7 +1,7 @@
 name = "caldav-to-mastodon"
 main = "index.js"
 compatibility_date = "2024-01-01"
-account_id = "" # insert your Cloudflare account ID
+account_id = "" # your Cloudflare account ID
 
 [triggers]
 # default: daily at 5:30 PM UTC (9:30 AM PST, 10:30 AM PDT)
@@ -12,8 +12,8 @@ crons = ["30 17 * * *"]
 MASTODON_INSTANCE_URL = "" # example: https://social.coop
 CALENDAR_EXPORT_URL = "" # CalDAV export URL ending in ?export
 DAYS_AHEAD = "1" # post events occuring __ days ahead (0-15, max 4 values, examples: "1", "0,1", "1,7,14")
+CLOUDFLARE_ACCESS_TEAM = "" # {team}.cloudflareaccess.com
 
-
-# encrypted variables:
-# wrangler secret put MASTODON_ACCESS_TOKEN
-
+#  encrypted variables:
+## wrangler secret put MASTODON_ACCESS_TOKEN
+## wrangler secret put CLOUDFLARE_ACCESS_AUD

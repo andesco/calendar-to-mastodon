@@ -1,10 +1,12 @@
 # Claude Code configuration
 .claude/
+CLAUDE.md
 
 # Environment files
 .env
 .env.example
 .env.local
+.dev.vars
 
 # Temporary files
 *.ics
