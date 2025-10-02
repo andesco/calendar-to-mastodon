@@ -1,13 +1,15 @@
-# CalDAV to Mastodon
+# Calendar to Mastodon
 
-This Cloudflare Worker automatically posts upcoming events (in a public CalDAV calendar) to a Mastodon account. It runs daily and checks for meetings scheduled for a configurable number of days ahead.
+This Cloudflare Worker automatically posts upcoming events (in a public [iCalendar][ical] feed) to a Mastodon account. It runs daily and checks for meetings scheduled for a configurable number of days ahead.
 
-## Features
+### Features
 
 - automatically checks for upcoming events daily
 - posts formatted announcements to Mastodon
 - serverless function via Cloudflare Workers
-- web interface for manual posting, protected by Cloudflare Access
+- web interface for manual posting
+
+- [Cloudflare Access][access] to enable web interface<small> · ` optional `</small>
 
 ## Setup
 
@@ -15,23 +17,25 @@ This Cloudflare Worker automatically posts upcoming events (in a public CalDAV c
 
 - Cloudflare account
 - Mastodon account and access token with `write:statuses` permission
-- A public CalDAV calendar feed that supports the [sabre/dav ICSExportPlugin](https://sabre.io/dav/ics-export-plugin/).
+- A supported public calendar feed
 
 > [!IMPORTANT]
-> This worker requires a CalDAV server with the [sabre/dav ICS Export Plugin](https://sabre.io/dav/ics-export-plugin/) enabled, which allows this Worker to efficiently fetch events in jCal format, within a limited date range. For example:
+> This worker requires a calendar feed that supports efficently fetching events in `jCal` format within a limited date range. Example:
 >
 > `{CALENDAR_EXPORT_URL}&accept=jcal&start={timestamp}&end={timestamp}&expand=1`
+>
+> CalDAV servers with [sabre/dav ICS Export Plugin][plugin] enabled have been tested directly.
 
 ### 1. Deploy
 
 #### Deploy to Cloudflare
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/andesco/cloudflare-worker-caldav-to-mastodon)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/andesco/calendar-to-mastodon)
 
 #### Cloudflare Dashboard
 
 <nobr>Workers & Pages</nobr> ⇢ Create an application ⇢ [Clone a repository](https://dash.cloudflare.com/?to=/:account/workers-and-pages/create/deploy-to-workers): \
-   `http://github.com/andesco/cloudflare-worker-caldav-to-mastodon`
+   `http://github.com/andesco/calendar-to-mastodon`
 
 #### Wrangler CLI
 
@@ -45,24 +49,27 @@ DAYS_AHEAD = "1"
 ```
 
 ```bash
-cd cloudflare-worker-caldav-to-mastodon
+cd calendar-to-mastodon
 wrangler login
 wrangler deploy
 ```
 
 ### 2. Enable Cloudflare Access
 
-To protect the web interface and API (both optional) this worker requires Cloudflare Access. All HTTP requests are blocked by default unless authenticated.
+This worker requires [Cloudflare Access][access] to enable the web interface and API (both optional). All HTTP requests must be authenticated with a <abbr title="JSON Web Token">`JWT`</abbr>. (Automated posting does not require Cloudflare
 
 1. [Cloudflare Dashboard](https://dash.cloudflare.com) ⇢ Zero Trust ⇢ Access ⇢ Applications
 2. Add an application for your Worker and its hostnames.
-3. Configure authentication rules (email, domain, etc.)
+3. Configure authentication rules (email, domain, etc.) as appropriate.
+4. Copy your team name and <abbr title="Application Audience Tag">`AUD`</abbr>:\
+`CLOUDFLARE_ACCESS_TEAM`\
+`CLOUDFLARE_ACCESS_AUD`
 
 > [!Note]
-> Deploy your worker, verify through the web interface can read your public calendar, and secure access though Cloudflare Access before saving your Mastodon token to `MASTODON_ACCESS_TOKEN`.
+> Automated event posting remains secure without enabling Cloudflare Access.
 
 > [!NOTE]
-> If your worker is protected by Cloudflare Access, use `cloudflared` CLI to authenticate:
+> If your worker is protected by Cloudflare Access, use `cloudflared` for command-line authentication:
 > ```bash
 > cloudflared access curl https://{worker}.{subdomain}.workers.dev/post/day -X POST
 > ```
@@ -71,8 +78,11 @@ To protect the web interface and API (both optional) this worker requires Cloudf
 
 1. Mastodon instance ⇢ Settings ⇢ Development ⇢ New Application
 2. Permissions:  `write:statuses`
-3. Save
-4. Copy `{your access token}`
+3. Save and copy your access token:\
+`MASTODON_ACCESS_TOKEN`
+
+> [!Important]
+> Deploy your worker, verify through the web interface can read your public calendar, and secure access though Cloudflare Access before saving your Mastodon token to `MASTODON_ACCESS_TOKEN`.
 
 ### 4. Add Secrets and Environment Variables
 
@@ -81,7 +91,7 @@ To protect the web interface and API (both optional) this worker requires Cloudf
    [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/) ⇢ `{worker}` ⇢ Settings: <nobr>Variables and Secrets: Add:</nobr> \
    `MASTODON_ACCESS_TOKEN` \
    `CLOUDFLARE_ACCESS_TEAM` \
-   `CLOUDFLARE_ACCESS_AUD` \
+   `CLOUDFLARE_ACCESS_AUD`
 
 #### Wrangler CLI
     
@@ -110,7 +120,7 @@ To protect the web interface and API (both optional) this worker requires Cloudf
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `CALENDAR_EXPORT_URL` | CalDAV calendar subscription URL | `https://social.coop/calendar/?export` |
+| `CALENDAR_EXPORT_URL` | [iCalendar][ical] subscription URL | `https://social.coop/calendar/?export` |
 | `MASTODON_INSTANCE_URL` | Mastodon instance URL | `https://social.coop` |
 | `DAYS_AHEAD` | days ahead to post events | `0` &nbsp; `1` &nbsp; `0,1,14` |
 | `MASTODON_ACCESS_TOKEN` | access token from Mastodon | `your-private-access-token` |
@@ -201,8 +211,13 @@ const localDate = new Date(tomorrow.toLocaleString('en-US', options));
 #### File Structure
 
 ```
-cloudflare-worker-caldav-to-mastodon/
+calendar-to-mastodon/
 ├── index.js          # main Cloudflare Worker code
 ├── README.md         # this document
 └── wrangler.toml     # Wrangler configuration (optional)
 ```
+
+
+[ical]:   https://en.wikipedia.org/wiki/ICalendar
+[plugin]: https://sabre.io/dav/ics-export-plugin/
+[access]: https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/
