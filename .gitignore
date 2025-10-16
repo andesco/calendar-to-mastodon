@@ -1,6 +1,8 @@
-# Claude Code configuration
+# LLM Agents
 .claude/
 CLAUDE.md
+GEMINI.md
+AGENTS.md
 
 # Environment files
 .env
