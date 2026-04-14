@@ -30,3 +30,6 @@ node_modules/
 
 # Personal wrangler configuration
 wrangler.local.toml
+
+# Documentation
+.documentation/

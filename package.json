@@ -6,6 +6,8 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "deploy:local": "wrangler deploy --config wrangler.local.toml",
+    "whoami:user": "unset CLOUDFLARE_API_KEY CLOUDFLARE_EMAIL CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_API_TOKEN=$CLOUDFLARE_SOCIALCOOP wrangler whoami --config wrangler.local.toml",
+    "deploy:user": "unset CLOUDFLARE_API_KEY CLOUDFLARE_EMAIL CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_API_TOKEN=$CLOUDFLARE_SOCIALCOOP wrangler deploy --config wrangler.local.toml",
     "dev": "wrangler dev",
     "dev:local": "wrangler dev --config wrangler.local.toml"
   },

@@ -37,9 +37,13 @@ async function validateJWT(request, env) {
 
   const [header_b64, payload_b64, signature_b64] = jwt.split('.');
   const header = JSON.parse(atob(header_b64));
+  if (header.alg !== 'RS256') {
+    console.error('Unexpected JWT algorithm:', header.alg);
+    return false;
+  }
 
   const certsURL = `https://` + env.CLOUDFLARE_ACCESS_TEAM + `.cloudflareaccess.com/cdn-cgi/access/certs`;
-  const response = await fetch(certsURL);
+  const response = await fetch(certsURL, { cf: { cacheTtl: 3600, cacheEverything: true } });
   if (!response.ok) {
     console.error('Failed to fetch Access certs');
     return false;
@@ -115,7 +119,9 @@ export default {
 
   async fetch(request, env, ctx) {
     // Require authentication by default, unless in a development environment
-    if (env.ENVIRONMENT !== 'development') {
+    if (env.ENVIRONMENT === 'development') {
+      console.warn('WARNING: Running in development mode — authentication is disabled');
+    } else {
       if (!env.CLOUDFLARE_ACCESS_TEAM || !env.CLOUDFLARE_ACCESS_AUD) {
         return new Response('Identity provider not configured. Set CLOUDFLARE_ACCESS_TEAM and CLOUDFLARE_ACCESS_AUD secrets.', { status: 500 });
       }
@@ -133,7 +139,8 @@ export default {
         await checkAndPostEvents(env);
         return new Response('Calendar check completed', { status: 200 });
       } catch (error) {
-        return new Response(`Error: ${error.message}`, { status: 500 });
+        console.error('Error in /post:', error);
+        return new Response('Internal server error', { status: 500 });
       }
     }
 
@@ -145,7 +152,8 @@ export default {
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (error) {
-        return new Response(JSON.stringify({ success: false, message: error.message }), {
+        console.error('Error in /post/day:', error);
+        return new Response(JSON.stringify({ success: false, message: 'Internal server error' }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -160,7 +168,8 @@ export default {
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (error) {
-        return new Response(JSON.stringify({ success: false, message: error.message }), {
+        console.error('Error in /post/tomorrow:', error);
+        return new Response(JSON.stringify({ success: false, message: 'Internal server error' }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -175,7 +184,8 @@ export default {
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (error) {
-        return new Response(JSON.stringify({ success: false, message: error.message }), {
+        console.error('Error in /post/next:', error);
+        return new Response(JSON.stringify({ success: false, message: 'Internal server error' }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -185,10 +195,14 @@ export default {
     if (request.method === 'POST' && url.pathname === '/post/event') {
       try {
         const event = await request.json();
+        if (!event || typeof event.summary !== 'string' || event.summary.length === 0 || event.summary.length > 500) {
+          return new Response('Invalid event data', { status: 400 });
+        }
         await postToMastodon(env, event);
         return new Response('Event posted successfully', { status: 200 });
       } catch (error) {
-        return new Response(`Error: ${error.message}`, { status: 500 });
+        console.error('Error in /post/event:', error);
+        return new Response('Internal server error', { status: 500 });
       }
     }
     
@@ -203,13 +217,16 @@ export default {
         }
 
         const { events, debug } = await getWebEvents(env, days);
-        
-        return new Response(JSON.stringify({ events: events, debug: debug }), {
+        const responseData = { events };
+        if (env.ENVIRONMENT === 'development') responseData.debug = debug;
+
+        return new Response(JSON.stringify(responseData), {
           headers: { 'Content-Type': 'application/json' },
           status: 200
         });
       } catch (error) {
-        return new Response(JSON.stringify({ error: error.message }), {
+        console.error('Error in /api/events:', error);
+        return new Response(JSON.stringify({ error: 'Internal server error' }), {
           headers: { 'Content-Type': 'application/json' },
           status: 500
         });
@@ -218,7 +235,10 @@ export default {
     
     if (request.method === 'GET') {
       return new Response(getWebInterface(env), {
-        headers: { 'Content-Type': 'text/html; charset=UTF-8' },
+        headers: {
+          'Content-Type': 'text/html; charset=UTF-8',
+          'Content-Security-Policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"
+        },
         status: 200
       });
     }
@@ -228,6 +248,9 @@ export default {
 };
 
 async function fetchCalendarEvents(env, days = 14) {
+  if (!env.CALENDAR_EXPORT_URL || !env.CALENDAR_EXPORT_URL.startsWith('https://')) {
+    throw new Error('CALENDAR_EXPORT_URL must be set and use HTTPS');
+  }
   const caldavUrl = env.CALENDAR_EXPORT_URL.replace('?export', '');
 
   const now = Math.floor(Date.now() / 1000);
@@ -776,6 +799,12 @@ function getWebInterface(env) {
     </div>
 
     <script>
+        function escapeHtml(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        }
+
         let globalEvents = [];
         
         async function triggerNextDay() {
@@ -848,7 +877,7 @@ function getWebInterface(env) {
             } finally {
                 button.disabled = false;
                 button.textContent = buttonId === 'nextDayBtn' ?
-                    '${buttonText}' :
+                    ${JSON.stringify(buttonText)} :
                     'Post Next Event';
             }
         }
@@ -894,9 +923,9 @@ function getWebInterface(env) {
                             const eventIndex = events.indexOf(event);
                             const nextOccurrence = calculateNextOccurrence(event);
                             return '<div class="event-item">' +
-                                    '<div class="event-title">' + event.summary + '</div>' +
+                                    '<div class="event-title">' + escapeHtml(event.summary) + '</div>' +
                                     '<div class="event-time">Original:<br>' + formatEventTime(event.start) + '</div>' +
-                                    (event.location ? '<div class="event-location">' + event.location + '</div>' : '') +
+                                    (event.location ? '<div class="event-location">' + escapeHtml(event.location) + '</div>' : '') +
                                     (nextOccurrence ?
                                         '<div class="next-occurrence">Next:<br>' + formatEventTime(nextOccurrence) + '</div>' :
                                         '<div class="next-occurrence">No future occurrences</div>') +
@@ -916,9 +945,9 @@ function getWebInterface(env) {
                             const eventIndex = events.indexOf(event);
                             const isFuture = new Date(event.start) > now;
                             return '<div class="event-item">' +
-                                    '<div class="event-title">' + event.summary + '</div>' +
+                                    '<div class="event-title">' + escapeHtml(event.summary) + '</div>' +
                                     '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
-                                    (event.location ? '<div class="event-location">' + event.location + '</div>' : '') +
+                                    (event.location ? '<div class="event-location">' + escapeHtml(event.location) + '</div>' : '') +
                                     '<button onclick="postEventById(' + eventIndex + ')">Post to Mastodon</button>' +
                                 '</div>';
                         }).join('');
@@ -1054,6 +1083,9 @@ function getWebInterface(env) {
 }
 
 async function postToMastodon(env, event) {
+  if (!env.MASTODON_INSTANCE_URL || !env.MASTODON_INSTANCE_URL.startsWith('https://')) {
+    throw new Error('MASTODON_INSTANCE_URL must be set and use HTTPS');
+  }
   const eventDate = new Date(event.start);
   
   // Format date (full weekday, abbreviated month with period)
