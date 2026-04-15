@@ -1,4 +1,4 @@
-name = "calendar-to-mastodon"
+name = "caldav-to-mastodon"
 main = "index.js"
 compatibility_date = "2024-01-01"
 account_id = "" # your Cloudflare account ID
