@@ -20,7 +20,7 @@ This Cloudflare Worker automatically posts upcoming events (in a public [iCalend
 - A supported public calendar feed
 
 > [!IMPORTANT]
-> This worker requires a calendar feed that supports efficently fetching events in `jCal` format within a limited date range. Example:
+> This worker requires a calendar feed that supports efficiently fetching events in `jCal` format within a limited date range. Example:
 >
 > `{CALENDAR_EXPORT_URL}&accept=jcal&start={timestamp}&end={timestamp}&expand=1`
 >
@@ -56,7 +56,7 @@ wrangler deploy
 
 ### 2. Enable Cloudflare Access
 
-This worker requires [Cloudflare Access][access] to enable the web interface and API (both optional). All HTTP requests must be authenticated with a <abbr title="JSON Web Token">`JWT`</abbr>. (Automated posting does not require Cloudflare
+This worker requires [Cloudflare Access][access] to enable the web interface and API (both optional). All HTTP requests must be authenticated with a <abbr title="JSON Web Token">`JWT`</abbr>. (Automated posting does not require Cloudflare Access.)
 
 1. [Cloudflare Dashboard](https://dash.cloudflare.com) ⇢ Zero Trust ⇢ Access ⇢ Applications
 2. Add an application for your Worker and its hostnames.
@@ -82,7 +82,7 @@ This worker requires [Cloudflare Access][access] to enable the web interface and
 `MASTODON_ACCESS_TOKEN`
 
 > [!Important]
-> Deploy your worker, verify through the web interface can read your public calendar, and secure access though Cloudflare Access before saving your Mastodon token to `MASTODON_ACCESS_TOKEN`.
+> Deploy your worker, verify through the web interface can read your public calendar, and secure access through Cloudflare Access before saving your Mastodon token to `MASTODON_ACCESS_TOKEN`.
 
 ### 4. Add Secrets and Environment Variables
 
@@ -116,7 +116,7 @@ This worker requires [Cloudflare Access][access] to enable the web interface and
    crons = ["30 17 * * *"]
    ```
 
-## Environment Variables & Secret
+## Environment Variables & Secrets
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -129,7 +129,7 @@ This worker requires [Cloudflare Access][access] to enable the web interface and
 | `ENVIRONMENT` | bypass authentication | `development` |
 
 > [!NOTE]
-> `DAYS_AHEAD` <br> `0` posts all events occuring today <br> `1` posts all events occuring tomorrow (default) <br> `0,1,14` posts all events occuring today, tomorrow, and in 14 days
+> `DAYS_AHEAD` <br> `0` posts all events occurring today <br> `1` posts all events occurring tomorrow (default) <br> `0,1,14` posts all events occurring today, tomorrow, and in 14 days
 
 
 ## Usage
@@ -138,12 +138,12 @@ This worker requires [Cloudflare Access][access] to enable the web interface and
 
 Once deployed and configured, the Worker will:
 - run daily at your scheduled time (defaulting to 17:30 UTC);
-- check for events occuring in `{DAYS_AHEAD} days; and
+- check for events occurring in `{DAYS_AHEAD}` days; and
 - post formatted announcements to Mastodon for each event.
 
 ### Manual Posting
 
-Visit your Worker in a browser for a simple web interfac:
+Visit your Worker in a browser for a simple web interface:
 ```
 https://{worker}.{subdomain}.workers.dev
 ```
